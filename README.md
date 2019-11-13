@@ -1,2 +1,2 @@
-# Tree
-Dendritic LED Tree
+# Trees
+Four LEDs tree of 144 LEDs each

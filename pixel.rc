@@ -1,0 +1,31 @@
+# Configuration file for PixelPusher with two inch pixels
+
+# You can change this if you have longer or shorter strings. Caps at 480 which may be a deal-breaker
+# pixels should be 808 x 3 = 404 x 6
+pixels=404
+# swap=123456
+
+# This sets how many strings are attached.
+stripsattached=6
+
+artnet_universe=1
+artnet_channel=1
+
+strip1=ws2811
+order1=rgb
+strip2=ws2811
+order2=rgb
+strip3=ws2811
+order3=rgb
+strip4=ws2811
+order4=rgb
+strip5=ws2811
+order5=rgb
+strip6=ws2811
+order6=rgb
+
+# order6=grb
+
+ether=10.1.0.20
+netmask=255.255.255.0
+gateway=10.1.0.1
