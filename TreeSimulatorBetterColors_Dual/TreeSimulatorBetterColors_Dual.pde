@@ -49,10 +49,10 @@ int pixel_counter = 0;
 int forward_led_counter = 0;
 int[] forward_led_lookup = new int[TOTAL_LEDS];
 int[] reverse_led_lookup = new int[TOTAL_LEDS];
-color[][] curr_buffer = new color[NUM_CHANNELS][TOTAL_LEDS];
-color[][] next_buffer = new color[NUM_CHANNELS][TOTAL_LEDS];
-color[][] morph_buffer = new color[NUM_CHANNELS][TOTAL_LEDS];  // blend of curr + next
-color[] interp_buffer = new color[TOTAL_LEDS];  // combine two channels here
+short[][][] curr_buffer = new short[NUM_CHANNELS][TOTAL_LEDS][3];
+short[][][] next_buffer = new short[NUM_CHANNELS][TOTAL_LEDS][3];
+short[][][] morph_buffer = new short[NUM_CHANNELS][TOTAL_LEDS][3];  // blend of curr + next
+short[][] interp_buffer = new short[TOTAL_LEDS][3];  // combine two channels here
 
 float[] x_coord = new float[TOTAL_LEDS];
 float[] y_coord = new float[TOTAL_LEDS];
@@ -125,7 +125,25 @@ int BRIGHTNESS = 100;  // A percentage
 
 int COLOR_STATE = 0;  // no enum types in processing. Messy
 
+int HUE_ = 0;
+int SAT_ = 1;
+int BRIGHT_ = 2;
 
+class HSV {
+  public short h, s, b;
+  
+  HSV(short h, short s, short b) {
+    this.h = h;
+    this.s = s;
+    this.b = b;
+  }
+  
+  HSV() {
+    this.h = 0;
+    this.s = 255;
+    this.b = 255;
+  }
+}
 
 //
 // setup
@@ -226,7 +244,7 @@ int draw_branch(int gen, int led) {
 int draw_pixel_line(int generation, int led) {
   // Draw a line of pixels, length determined by generation
   for (int pixel = 0; pixel < NUM_PIXELS_GEN[generation]; pixel++) {
-    fill(interp_buffer[led]);
+    fill(color(interp_buffer[led][HUE_], interp_buffer[led][SAT_], interp_buffer[led][BRIGHT_]));
     rect(0, pixel * TOTAL_PIXEL_HEIGHT, PIXEL_WIDTH, PIXEL_HEIGHT);
     led++;
   }
@@ -258,16 +276,19 @@ void initializeColorBuffers() {
 }
 
 void fill_black_one_channel(int c) {
-  color black = color(0,0,0); 
   for (int i = 0; i < TOTAL_LEDS; i++) {
-    curr_buffer[c][i] = black;
-    next_buffer[c][i] = black;
+    for (int j = 0; j < 3; j++) {
+      curr_buffer[c][i][j] = 0;
+      next_buffer[c][i][j] = 0;
+    }
   }
 }
 
 void pushColorBuffer(byte c) {
   for (int i = 0; i < TOTAL_LEDS; i++) {
-    curr_buffer[c][i] = next_buffer[c][i];
+    for (int j = 0; j < 3; j++) {
+      curr_buffer[c][i][j] = next_buffer[c][i][j];
+    }
   }
 }
 
@@ -344,7 +365,9 @@ void processPixelCommand(byte channel, String cmd) {
     println("LED index of %d is too large", i);
     return;
   }
-  next_buffer[channel][i] = color( (short)h, (short)s, (short)v );  
+  next_buffer[channel][i][HUE_] = (short)h;
+  next_buffer[channel][i][SAT_] = (short)s;
+  next_buffer[channel][i][BRIGHT_] = (short)v;
 //  println(String.format("setting channel %d pixel:%d to h:%d, s:%d, v:%d", channel, i, h, s, v));
 }
 
@@ -371,8 +394,16 @@ void interpChannels() {
 // pushOnlyOneChannel - push the morph_channel to the simulator
 //
 void pushOnlyOneChannel(int channel) {
+  HSV hsv = new HSV();
   for (int i = 0; i < TOTAL_LEDS; i++) {
-    interp_buffer[i] = adjColor(morph_buffer[channel][i]);
+    HSV in_hsv = new HSV(morph_buffer[channel][i][HUE_],
+                         morph_buffer[channel][i][SAT_],
+                         morph_buffer[channel][i][BRIGHT_]);
+    HSV out_hsv = adjColor(in_hsv);
+    
+    interp_buffer[i][HUE_] = out_hsv.h;
+    interp_buffer[i][SAT_] = out_hsv.s;
+    interp_buffer[i][BRIGHT_] = out_hsv.b; 
   }
 }
 
@@ -381,8 +412,22 @@ void pushOnlyOneChannel(int channel) {
 //
 void morphBetweenChannels(float fract) {
   for (int i = 0; i < TOTAL_LEDS; i++) {
-    interp_buffer[i] = adjColor(interp_color(morph_buffer[1][i], morph_buffer[0][i], fract));
+    HSV hsv = adjColor(interp_color(morph_buffer[1][i][HUE_], 
+                                    morph_buffer[1][i][SAT_],
+                                    morph_buffer[1][i][BRIGHT_],
+                                    morph_buffer[0][i][HUE_],
+                                    morph_buffer[0][i][SAT_],
+                                    morph_buffer[0][i][BRIGHT_], fract));
+    interp_buffer[i][HUE_] = hsv.h;
+    interp_buffer[i][SAT_] = hsv.s;
+    interp_buffer[i][BRIGHT_] = hsv.b;
   }
+}
+
+HSV interp_color(short h1, short s1, short v1, short h2, short s2, short v2, float fract) {
+  return new HSV(interp(h1, h2, fract),
+                 interp(s1, s2, fract),
+                 interp_wrap(h1, h2, fract));
 }
 
 //
@@ -392,62 +437,64 @@ void morphBetweenChannels(float fract) {
 //
 void morph_frame(byte c, float fract) {
   for (int i = 0; i < TOTAL_LEDS; i++) {
-    morph_buffer[c][i] = interp_color(curr_buffer[c][i], next_buffer[c][i], fract);
+    morph_buffer[c][i][HUE_] = interp_wrap(curr_buffer[c][i][HUE_], next_buffer[c][i][HUE_], fract);
+    morph_buffer[c][i][SAT_] = interp(curr_buffer[c][i][SAT_], next_buffer[c][i][SAT_], fract);
+    morph_buffer[c][i][BRIGHT_] = interp(curr_buffer[c][i][BRIGHT_], next_buffer[c][i][BRIGHT_], fract);
   }
 }
 
 // Adjust color for brightness and hue
-color adjColor(color c) {
-  return c;  // Remove after debugging
-//  return adj_brightness(colorCorrect(c));
+HSV adjColor(HSV hsv) {
+  return adj_brightness(colorCorrect(hsv));
 }
 
-color adj_brightness(color c) {
+HSV adj_brightness(HSV hsv) {
   // Adjust only the 3rd brightness channel
-  return color(hue(c), saturation(c), int(brightness(c) * BRIGHTNESS / 100) );
+  return new HSV(hsv.h, hsv.s, (short)(hsv.b * BRIGHTNESS / 100) );
 }
 
-color colorCorrect(color c) {
-  int new_hue;
+HSV colorCorrect(HSV hsv) {
+  short old_hue = hsv.h;
+  short new_hue;
   
   switch(COLOR_STATE) {
     case 1:  // no red
-      new_hue = map_range(hue(c), 40, 200);
+      new_hue = map_range(old_hue, 40, 200);
       break;
     
     case 2:  // no green
-      new_hue = map_range(hue(c), 120, 45);
+      new_hue = map_range(old_hue, 120, 45);
       break;
     
     case 3:  // no blue
-      new_hue = map_range(hue(c), 200, 120);
+      new_hue = map_range(old_hue, 200, 120);
       break;
     
     case 4:  // all red
-      new_hue = map_range(hue(c), 200, 40);
+      new_hue = map_range(old_hue, 200, 40);
       break;
     
     case 5:  // all green
-      new_hue = map_range(hue(c), 40, 130);
+      new_hue = map_range(old_hue, 40, 130);
       break;
     
     case 6:  // all blue
-      new_hue = map_range(hue(c), 120, 200);
+      new_hue = map_range(old_hue, 120, 200);
       break;
     
     default:  // all colors
-      new_hue = int(hue(c));
+      new_hue = old_hue;
       break;
   }
-  return color(new_hue, saturation(c), brightness(c));
+  return new HSV(new_hue, hsv.s, hsv.b);
 }
 
 //
 // map_range - map a hue (0-255) to a smaller range (start-end)
 //
-int map_range(float hue, int start, int end) {
+short map_range(float hue, int start, int end) {
   int range = (end > start) ? end - start : (end + 256 - start) % 256 ;
-  return int(start + ((hue / 255.0) * range)) % 256;
+  return (short)(int(start + ((hue / 255.0) * range) % 256));
 }
 
 //
@@ -558,11 +605,11 @@ void mouseClicked() {
    
   }  else if (mouseX > 200 && mouseX < 215 && mouseY > SCREEN_SIZE+4 && mouseY < SCREEN_SIZE+19) {
     // Bright up checkbox
-    if (BRIGHTNESS <= 95) BRIGHTNESS += 5;
+    if (BRIGHTNESS <= 95) BRIGHTNESS += 1;
     
   } else if (mouseX > 200 && mouseX < 215 && mouseY > SCREEN_SIZE+22 && mouseY < SCREEN_SIZE+37) {
     // Bright down checkbox
-    BRIGHTNESS -= 5;  
+    BRIGHTNESS -= 2;  
     if (BRIGHTNESS < 1) BRIGHTNESS = 1;
   
   }  else if (mouseX > 400 && mouseX < 420 && mouseY > SCREEN_SIZE+10 && mouseY < SCREEN_SIZE+30) {
@@ -626,12 +673,14 @@ void sendDataToLights() {
       
       for (int i = 0; i < TRUNK_LEDS; i++) {
         pixel = i + (trunk * TRUNK_LEDS);
-        c = interp_buffer[pixel];
+        c = color(interp_buffer[pixel][HUE_], 
+                  interp_buffer[pixel][SAT_],
+                  interp_buffer[pixel][BRIGHT_]);
         
-        // Testing
-        if (brightness(c) > 0) {
-          println(hue(c), saturation(c), brightness(c));
-        }
+//        // Testing
+//        if (brightness(c) > 0) {
+//          println(hue(c), saturation(c), brightness(c));
+//        }
         
         led = forward_led_lookup[i];
 
@@ -684,56 +733,17 @@ void print_memory_usage() {
   }  
 }
 
-color interp_color(color c1, color c2, float fract) {
-  int h,s,b;
-  if (c1 == c2) {
-    return c1;
-  } else if (fract <= 0) {
-    return c1;
-  } else if (fract >= 1) {
-    return c2; 
-  } else if (is_black(c1)) {
-    h = int(hue(c2));
-    s = interpolate(0, saturation(c2), fract);
-    b = interpolate(0, brightness(c2), fract);
-  } else if (is_black(c2)) {
-    h = int(hue(c1));
-    s = rev_interpolate(0, saturation(c1), fract);
-    b = rev_interpolate(0, brightness(c1), fract);
-//    return color(int(hue(c1)), int(saturation(c1) * (1.0 - fract)), int(brightness(c1) * (1.0 - fract)) );
-//   return color(hue(c1), saturation(c1), brightness(c1) * (1.0 - fract));
-
- } else {
-   // Try always Be Saturated (sat = 255)
-   // ToDo: I don't think works as well as you think it does
-//   println(hue(c1), saturation(c1), brightness(c1));
-//   println(hue(c2), saturation(c2), brightness(c2));
-//   println(interpolate_wrap(hue(c1), hue(c2), fract), 255, lerp(brightness(c1), brightness(c2), fract));
-//   println();
-    h = interpolate_wrap(hue(c1), hue(c2), fract);
-    s = interpolate(saturation(c1), saturation(c2), fract);
-    b = interpolate(brightness(c1), brightness(c2), fract);
-                 
-//    return color(interpolate_wrap(int(hue(c1)), int(hue(c2)), fract),
-//                 int(lerp(saturation(c1), saturation(c2), fract)),  // 255 ?
-//                 int(lerp(brightness(c1), brightness(c2), fract)) );
- }
- color new_color = color(h,s,b);
- println(h,hue(new_color), s, saturation(new_color), b, brightness(new_color));
- return color(h,s,b);
+short interp(short a, short b, float fract) {
+  if (a == b) return a;
+  if (fract <= 0) return a;
+  if (fract >= 0) return b;
+  return (short)(a + fract * (b - a));
 }
 
-int interpolate(float a, float b, float fract) {
-  return int(a + fract * (b - a));
-}
-
-int rev_interpolate(float a, float b, float fract) {
-  return interpolate(a, b, 1 - fract);
-}
-
-int interpolate_wrap(float a, float b, float fract) {
+short interp_wrap(short a, short b, float fract) {
+  if (a == 0) return b;
+  if (b == 0) return a;
   
-  // Can I do this with bytes?
   float distCCW, distCW, answer;
 
   if (a >= b) {
@@ -751,7 +761,7 @@ int interpolate_wrap(float a, float b, float fract) {
       answer += 256;
     }
   }
-  return int(answer);
+  return (short)answer;
 }
 
 boolean is_black(color c) {

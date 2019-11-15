@@ -20,8 +20,8 @@ class Pixel(object):
         self.y = (y - 10007) / 11438.0  # 0.0 - 1.0 from min -10007, max 11438
         self.d = sqrt((self.x * self.x) + (self.y * self.y)) / sqrt(2)  # 0.0 - 1.0
         self.theta = self.get_angle()
-        self.curr_frame = (0,0,0)
-        self.next_frame = (0,0,0)
+        self.curr_frame = (0,255,0)  # Always make saturation = 255
+        self.next_frame = (0,255,0)  # Always make saturation = 255
 
     def get_angle(self):
         """Get the 0-2pi angle from the x,y coordinate. arctans are weird."""
@@ -62,10 +62,10 @@ class Pixel(object):
         self.curr_frame = color
 
     def set_black(self):
-        self.next_frame = (0,0,0)
+        self.next_frame = (0,255,0)  # Always make saturation = 255
 
     def force_black(self):
-        self.curr_frame = (0,0,1)
+        self.curr_frame = (0,255,1)  # Always make saturation = 255
         self.set_black()
 
     def update_frame(self):

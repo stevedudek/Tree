@@ -8,7 +8,7 @@
   
   API
   
-  Python Showrunner sends: pixel, h, s, b
+  Python Showrunner sends: pixel, r, g, b
      Showrunner needs to figure out branch mapping
      as well as deconvolving trunks to leds
      pixel is the first led of the 2 doubled leds
@@ -34,7 +34,7 @@ int NUMBER_BRANCHES = 2; // num of later branches
 
 // Timing variables needed to control regular morphing
 // Doubled for 2 channels
-int SLOWNESS = 1;
+int SLOWNESS = 20;
 int[] delay_time = { 10000, 10000 };  // delay time length in milliseconds (dummy initial value)
 long[] start_time = { millis(), millis() };  // start time point (in absolute time)
 long[] last_time = { start_time[0], start_time[1] };
@@ -49,10 +49,10 @@ int pixel_counter = 0;
 int forward_led_counter = 0;
 int[] forward_led_lookup = new int[TOTAL_LEDS];
 int[] reverse_led_lookup = new int[TOTAL_LEDS];
-color[][] curr_buffer = new color[NUM_CHANNELS][TOTAL_LEDS];
-color[][] next_buffer = new color[NUM_CHANNELS][TOTAL_LEDS];
-color[][] morph_buffer = new color[NUM_CHANNELS][TOTAL_LEDS];  // blend of curr + next
-color[] interp_buffer = new color[TOTAL_LEDS];  // combine two channels here
+short[][][] curr_buffer = new short[NUM_CHANNELS][TOTAL_LEDS][3];
+short[][][] next_buffer = new short[NUM_CHANNELS][TOTAL_LEDS][3];
+short[][][] morph_buffer = new short[NUM_CHANNELS][TOTAL_LEDS][3];  // blend of curr + next
+short[][] interp_buffer = new short[TOTAL_LEDS][3];  // combine two channels here
 
 float[] x_coord = new float[TOTAL_LEDS];
 float[] y_coord = new float[TOTAL_LEDS];
@@ -125,7 +125,25 @@ int BRIGHTNESS = 100;  // A percentage
 
 int COLOR_STATE = 0;  // no enum types in processing. Messy
 
+byte R_ = 0;
+byte G_ = 1;
+byte B_ = 2;
 
+class RGB {
+  public short r, g, b;
+  
+  RGB(short r, short g, short b) {
+    this.r = r;
+    this.g = g;
+    this.b = b;
+  }
+  
+  RGB() {
+    this.r = 0;
+    this.g = 0;
+    this.b = 0;
+  }
+}
 
 //
 // setup
@@ -134,7 +152,7 @@ void setup() {
   size(SCREEN_SIZE, SCREEN_SIZE + 50); // 50 for controls
   fill(255,255,0);
   
-  frameRate(20);
+  frameRate(10);
   
   registry = new DeviceRegistry();
   testObserver = new TestObserver();
@@ -142,7 +160,7 @@ void setup() {
   prepareExitHandler();
   strips = registry.getStrips();
   
-  colorMode(HSB, 255);  // HSB colors (not RGB)
+  colorMode(RGB, 255);
   
   initializeColorBuffers();  // Stuff curr/next frames with zeros (all black)
   
@@ -226,7 +244,7 @@ int draw_branch(int gen, int led) {
 int draw_pixel_line(int generation, int led) {
   // Draw a line of pixels, length determined by generation
   for (int pixel = 0; pixel < NUM_PIXELS_GEN[generation]; pixel++) {
-    fill(interp_buffer[led]);
+    fill(color(interp_buffer[led][R_], interp_buffer[led][G_], interp_buffer[led][B_]));
     rect(0, pixel * TOTAL_PIXEL_HEIGHT, PIXEL_WIDTH, PIXEL_HEIGHT);
     led++;
   }
@@ -258,16 +276,19 @@ void initializeColorBuffers() {
 }
 
 void fill_black_one_channel(int c) {
-  color black = color(0,0,0); 
   for (int i = 0; i < TOTAL_LEDS; i++) {
-    curr_buffer[c][i] = black;
-    next_buffer[c][i] = black;
+    for (int j = 0; j < 3; j++) {
+      curr_buffer[c][i][j] = 0;
+      next_buffer[c][i][j] = 0;
+    }
   }
 }
 
 void pushColorBuffer(byte c) {
   for (int i = 0; i < TOTAL_LEDS; i++) {
-    curr_buffer[c][i] = next_buffer[c][i];
+    for (int j = 0; j < 3; j++) {
+      curr_buffer[c][i][j] = next_buffer[c][i][j];
+    }
   }
 }
 
@@ -306,7 +327,7 @@ void pollServer() {
 //     a. X = Finish a morph cycle (clean up by pushing the frame buffers)
 //     b. D(int) = delay for int milliseconds (but keeping morphing)
 //     c. I(short) = channel intensity (0 = off, 255 = all on)
-//     d. Otherwise, process 4 integers as (i, h,s,v)
+//     d. Otherwise, process 4 integers as (i, r,g,b)
 //
 //
 void processCommand(String cmd) {
@@ -317,7 +338,7 @@ void processCommand(String cmd) {
   if (cmd.charAt(0) == 'X') {  // Finish the cycle
     finishCycle(channel);
   } else if (cmd.charAt(0) == 'D') {  // Get the delay time
-    delay_time[channel] = Integer.valueOf(cmd.substring(1, cmd.length())) / SLOWNESS;
+    delay_time[channel] = Integer.valueOf(cmd.substring(1, cmd.length())) * SLOWNESS;
   } else if (cmd.charAt(0) == 'I') {  // Get the intensity
     channel_intensity[channel] = Integer.valueOf(cmd.substring(1, cmd.length())).shortValue();
   } else {  
@@ -325,7 +346,7 @@ void processCommand(String cmd) {
   }
 }
 
-// 4 comma-separated numbers for i, h, s, v
+// 4 comma-separated numbers for i, r, g, b
 Pattern cmd_pattern = Pattern.compile("^\\s*(\\d+),(\\d+),(\\d+),(\\d+)\\s*$");
 
 void processPixelCommand(byte channel, String cmd) {
@@ -336,16 +357,18 @@ void processPixelCommand(byte channel, String cmd) {
     return;
   }
   int i = Integer.valueOf(m.group(1));
-  int h = Integer.valueOf(m.group(2));
-  int s = Integer.valueOf(m.group(3));
-  int v = Integer.valueOf(m.group(4));
+  int r = Integer.valueOf(m.group(2));
+  int g = Integer.valueOf(m.group(3));
+  int b = Integer.valueOf(m.group(4));
   
   if (i > TOTAL_LEDS) {
     println("LED index of %d is too large", i);
     return;
   }
-  next_buffer[channel][i] = color( (short)h, (short)s, (short)v );  
-//  println(String.format("setting channel %d pixel:%d to h:%d, s:%d, v:%d", channel, i, h, s, v));
+  next_buffer[channel][i][R_] = (short)r;
+  next_buffer[channel][i][G_] = (short)g;
+  next_buffer[channel][i][B_] = (short)b;
+//  println(String.format("setting channel %d pixel:%d to r:%d, g:%d, b:%d", channel, i, r, g, b));
 }
 
 /////  Routines to interact with the Lights
@@ -371,8 +394,18 @@ void interpChannels() {
 // pushOnlyOneChannel - push the morph_channel to the simulator
 //
 void pushOnlyOneChannel(int channel) {
+  RGB rgb = new RGB();  // "pointer" by reference
+  
   for (int i = 0; i < TOTAL_LEDS; i++) {
-    interp_buffer[i] = adjColor(morph_buffer[channel][i]);
+    rgb.r = morph_buffer[channel][i][R_];
+    rgb.g = morph_buffer[channel][i][G_];
+    rgb.b = morph_buffer[channel][i][B_];
+    
+    adjColor(rgb);
+    
+    interp_buffer[i][R_] = rgb.r;
+    interp_buffer[i][G_] = rgb.g;
+    interp_buffer[i][B_] = rgb.b; 
   }
 }
 
@@ -380,9 +413,24 @@ void pushOnlyOneChannel(int channel) {
 // morphBetweenChannels - interpolate the morph_channel on to the simulator
 //
 void morphBetweenChannels(float fract) {
+  RGB rgb = new RGB();  // "pointer" by reference
+  
   for (int i = 0; i < TOTAL_LEDS; i++) {
-    interp_buffer[i] = adjColor(interp_color(morph_buffer[1][i], morph_buffer[0][i], fract));
+    interp_color(morph_buffer[1][i][R_], morph_buffer[1][i][G_], morph_buffer[1][i][B_],
+                 morph_buffer[0][i][R_], morph_buffer[0][i][G_], morph_buffer[0][i][B_], 
+                 rgb, fract);
+    adjColor(rgb);         
+    
+    interp_buffer[i][R_] = rgb.r;
+    interp_buffer[i][G_] = rgb.g;
+    interp_buffer[i][B_] = rgb.b;
   }
+}
+
+void interp_color(short r1, short g1, short b1, short r2, short g2, short b2, RGB rgb, float fract) {
+  rgb.r = interp(r1, r2, fract);
+  rgb.g = interp(g1, g2, fract);
+  rgb.b = interp(b1, b2, fract);
 }
 
 //
@@ -391,63 +439,107 @@ void morphBetweenChannels(float fract) {
 //  fract is an 0.0 - 1.0 fraction towards the next frame
 //
 void morph_frame(byte c, float fract) {
+  RGB rgb = new RGB();  // "pointer" by reference
+  
   for (int i = 0; i < TOTAL_LEDS; i++) {
-    morph_buffer[c][i] = interp_color(curr_buffer[c][i], next_buffer[c][i], fract);
+    interp_color(curr_buffer[c][i][R_], curr_buffer[c][i][G_], curr_buffer[c][i][B_], 
+                 next_buffer[c][i][R_], next_buffer[c][i][G_], next_buffer[c][i][B_], rgb, fract);
+    
+    morph_buffer[c][i][R_] = rgb.r;
+    morph_buffer[c][i][G_] = rgb.g;
+    morph_buffer[c][i][B_] = rgb.b;
   }
 }
 
 // Adjust color for brightness and hue
-color adjColor(color c) {
-  return c;  // Remove after debugging
-//  return adj_brightness(colorCorrect(c));
+void adjColor(RGB rgb) {
+  colorCorrect(rgb);
+  adj_brightness(rgb);
 }
 
-color adj_brightness(color c) {
-  // Adjust only the 3rd brightness channel
-  return color(hue(c), saturation(c), int(brightness(c) * BRIGHTNESS / 100) );
+void adj_brightness(RGB rgb) {
+  rgb.r = (short)(rgb.r * BRIGHTNESS / 100);
+  rgb.g = (short)(rgb.g * BRIGHTNESS / 100);
+  rgb.b = (short)(rgb.b * BRIGHTNESS / 100);
 }
 
-color colorCorrect(color c) {
-  int new_hue;
-  
+void colorCorrect(RGB rgb) {
   switch(COLOR_STATE) {
     case 1:  // no red
-      new_hue = map_range(hue(c), 40, 200);
+      if (rgb.r > 0) {
+        if (rgb.g == 0) {
+          rgb.g = rgb.r;
+          rgb.r = 0;
+        } else if (rgb.b == 0) {
+          rgb.b = rgb.r;
+          rgb.r = 0;
+        }
+      }
       break;
     
     case 2:  // no green
-      new_hue = map_range(hue(c), 120, 45);
+      if (rgb.g > 0) {
+        if (rgb.r == 0) {
+          rgb.r = rgb.g;
+          rgb.g = 0;
+        } else if (rgb.b == 0) {
+          rgb.b = rgb.g;
+          rgb.g = 0;
+        }
+      }
       break;
     
     case 3:  // no blue
-      new_hue = map_range(hue(c), 200, 120);
+      if (rgb.b > 0) {
+        if (rgb.r == 0) {
+          rgb.r = rgb.b;
+          rgb.b = 0;
+        } else if (rgb.g == 0) {
+          rgb.g = rgb.b;
+          rgb.b = 0;
+        }
+      }
       break;
     
     case 4:  // all red
-      new_hue = map_range(hue(c), 200, 40);
+      if (rgb.r == 0) {
+        if (rgb.g > rgb.b) {
+          rgb.r = rgb.g;
+          rgb.g = 0;
+        } else {
+          rgb.r = rgb.b;
+          rgb.b = 0;
+        }
+      }
       break;
     
     case 5:  // all green
-      new_hue = map_range(hue(c), 40, 130);
+      if (rgb.g == 0) {
+        if (rgb.r > rgb.b) {
+          rgb.g = rgb.r;
+          rgb.r = 0;
+        } else {
+          rgb.g = rgb.b;
+          rgb.b = 0;
+        }
+      }
       break;
     
     case 6:  // all blue
-      new_hue = map_range(hue(c), 120, 200);
+      if (rgb.b == 0) {
+        if (rgb.r > rgb.g) {
+          rgb.b = rgb.r;
+          rgb.r = 0;
+        } else {
+          rgb.b = rgb.g;
+          rgb.g = 0;
+        }
+      }
       break;
     
-    default:  // all colors
-      new_hue = int(hue(c));
+    default:
       break;
-  }
-  return color(new_hue, saturation(c), brightness(c));
-}
-
-//
-// map_range - map a hue (0-255) to a smaller range (start-end)
-//
-int map_range(float hue, int start, int end) {
-  int range = (end > start) ? end - start : (end + 256 - start) % 256 ;
-  return int(start + ((hue / 255.0) * range)) % 256;
+  }   
 }
 
 //
@@ -500,7 +592,7 @@ void drawBottomControls() {
   rectMode(CORNER);
   
   // draw a bottom white region
-  fill(0,0,255);
+  fill(255,255,255);
   rect(0,SCREEN_SIZE, SCREEN_SIZE,40);
   
   // draw divider lines
@@ -511,7 +603,7 @@ void drawBottomControls() {
   
   // draw checkboxes
   stroke(0);
-  fill(0,0,255);
+  fill(255,255,255);
   
   // Checkbox is always unchecked; it is 3-state
   rect(20,SCREEN_SIZE+10,20,20);  // label checkbox
@@ -519,12 +611,15 @@ void drawBottomControls() {
   rect(200,SCREEN_SIZE+4,15,15);  // plus brightness
   rect(200,SCREEN_SIZE+22,15,15);  // minus brightness
   
-  drawCheckbox(340,SCREEN_SIZE+4,15, color(255,255,255), COLOR_STATE == 1);
-  drawCheckbox(340,SCREEN_SIZE+22,15, color(255,255,255), COLOR_STATE == 4);
-  drawCheckbox(360,SCREEN_SIZE+4,15, color(87,255,255), COLOR_STATE == 2);
-  drawCheckbox(360,SCREEN_SIZE+22,15, color(87,255,255), COLOR_STATE == 5);
-  drawCheckbox(380,SCREEN_SIZE+4,15, color(175,255,255), COLOR_STATE == 3);
-  drawCheckbox(380,SCREEN_SIZE+22,15, color(175,255,255), COLOR_STATE == 6);
+  rect(600,SCREEN_SIZE+4,15,15);  // plus brightness
+  rect(600,SCREEN_SIZE+22,15,15);  // minus brightness
+  
+  drawCheckbox(340,SCREEN_SIZE+4,15, color(255,0,0), COLOR_STATE == 1);
+  drawCheckbox(340,SCREEN_SIZE+22,15, color(0,255,0), COLOR_STATE == 4);
+  drawCheckbox(360,SCREEN_SIZE+4,15, color(0,0,255), COLOR_STATE == 2);
+  drawCheckbox(360,SCREEN_SIZE+22,15, color(255,0,0), COLOR_STATE == 5);
+  drawCheckbox(380,SCREEN_SIZE+4,15, color(0,255,0), COLOR_STATE == 3);
+  drawCheckbox(380,SCREEN_SIZE+22,15, color(0,0,255), COLOR_STATE == 6);
   
   drawCheckbox(400,SCREEN_SIZE+10,20, color(0,0,255), COLOR_STATE == 0);
   
@@ -539,6 +634,13 @@ void drawBottomControls() {
   text("Brightness", 225, SCREEN_SIZE+25);
   textFont(font_square, 20);
   text(BRIGHTNESS, 150, SCREEN_SIZE+28);
+  
+  textFont(font_square, 12);
+  text("+", 590, SCREEN_SIZE+16);
+  text("-", 590, SCREEN_SIZE+34);
+  text("Speed", 625, SCREEN_SIZE+25);
+  textFont(font_square, 20);
+  text(SLOWNESS, 550, SCREEN_SIZE+28);
   
   textFont(font_square, 12);
   text("None", 305, SCREEN_SIZE+16);
@@ -558,12 +660,21 @@ void mouseClicked() {
    
   }  else if (mouseX > 200 && mouseX < 215 && mouseY > SCREEN_SIZE+4 && mouseY < SCREEN_SIZE+19) {
     // Bright up checkbox
-    if (BRIGHTNESS <= 95) BRIGHTNESS += 5;
+    if (BRIGHTNESS <= 95) BRIGHTNESS += 1;
     
   } else if (mouseX > 200 && mouseX < 215 && mouseY > SCREEN_SIZE+22 && mouseY < SCREEN_SIZE+37) {
     // Bright down checkbox
-    BRIGHTNESS -= 5;  
+    BRIGHTNESS -= 2;  
     if (BRIGHTNESS < 1) BRIGHTNESS = 1;
+  
+  }  else if (mouseX > 600 && mouseX < 615 && mouseY > SCREEN_SIZE+4 && mouseY < SCREEN_SIZE+19) {
+    // Slowness up checkbox
+    if (SLOWNESS <= 100) SLOWNESS += 1;
+    
+  } else if (mouseX > 600 && mouseX < 615 && mouseY > SCREEN_SIZE+22 && mouseY < SCREEN_SIZE+37) {
+    // Slowness down checkbox
+    SLOWNESS -= 1;  
+    if (SLOWNESS < 1) SLOWNESS = 1;
   
   }  else if (mouseX > 400 && mouseX < 420 && mouseY > SCREEN_SIZE+10 && mouseY < SCREEN_SIZE+30) {
     // No color correction  
@@ -602,7 +713,7 @@ void mouseClicked() {
 void sendDataToLights() {
   if (testObserver.hasStrips) {   
     registry.startPushing();
-    registry.setExtraDelay(0);
+    registry.setExtraDelay(10);
     registry.setAutoThrottle(true);
     registry.setAntiLog(true);    
     
@@ -611,7 +722,7 @@ void sendDataToLights() {
     int led = 0;  // current led
     int pixel = 0;
     
-    color c; 
+    color c;
     
     List<Strip> strip_list = registry.getStrips();
     Strip[] strips = new Strip[DOUBLE_TRUNKS];
@@ -622,16 +733,13 @@ void sendDataToLights() {
       }
     }
     for (trunk = 0; trunk < NUMBER_TRUNKS; trunk++) {
+//    for (trunk = 0; trunk < NUMBER_TRUNKS; trunk++) {
       double_trunk = trunk * 2;
       
       for (int i = 0; i < TRUNK_LEDS; i++) {
         pixel = i + (trunk * TRUNK_LEDS);
-        c = interp_buffer[pixel];
         
-        // Testing
-        if (brightness(c) > 0) {
-          println(hue(c), saturation(c), brightness(c));
-        }
+        c = get_color(interp_buffer[pixel][R_], interp_buffer[pixel][G_], interp_buffer[pixel][B_]);
         
         led = forward_led_lookup[i];
 
@@ -651,6 +759,12 @@ void sendDataToLights() {
       }
     }
   }
+}
+
+color get_color(short r, short g, short b) {
+  int new_r = r << 16;
+  int new_g = g << 8;
+  return new_r | new_g | b;
 }
 
 private void prepareExitHandler () {
@@ -684,56 +798,18 @@ void print_memory_usage() {
   }  
 }
 
-color interp_color(color c1, color c2, float fract) {
-  int h,s,b;
-  if (c1 == c2) {
-    return c1;
-  } else if (fract <= 0) {
-    return c1;
-  } else if (fract >= 1) {
-    return c2; 
-  } else if (is_black(c1)) {
-    h = int(hue(c2));
-    s = interpolate(0, saturation(c2), fract);
-    b = interpolate(0, brightness(c2), fract);
-  } else if (is_black(c2)) {
-    h = int(hue(c1));
-    s = rev_interpolate(0, saturation(c1), fract);
-    b = rev_interpolate(0, brightness(c1), fract);
-//    return color(int(hue(c1)), int(saturation(c1) * (1.0 - fract)), int(brightness(c1) * (1.0 - fract)) );
-//   return color(hue(c1), saturation(c1), brightness(c1) * (1.0 - fract));
-
- } else {
-   // Try always Be Saturated (sat = 255)
-   // ToDo: I don't think works as well as you think it does
-//   println(hue(c1), saturation(c1), brightness(c1));
-//   println(hue(c2), saturation(c2), brightness(c2));
-//   println(interpolate_wrap(hue(c1), hue(c2), fract), 255, lerp(brightness(c1), brightness(c2), fract));
-//   println();
-    h = interpolate_wrap(hue(c1), hue(c2), fract);
-    s = interpolate(saturation(c1), saturation(c2), fract);
-    b = interpolate(brightness(c1), brightness(c2), fract);
-                 
-//    return color(interpolate_wrap(int(hue(c1)), int(hue(c2)), fract),
-//                 int(lerp(saturation(c1), saturation(c2), fract)),  // 255 ?
-//                 int(lerp(brightness(c1), brightness(c2), fract)) );
- }
- color new_color = color(h,s,b);
- println(h,hue(new_color), s, saturation(new_color), b, brightness(new_color));
- return color(h,s,b);
+short interp(short a, short b, float fract) {
+  if (a == b) return a;
+  if (fract <= 0) return a;
+  if (fract >= 1) return b;
+  return (short)(a + fract * (b - a));
 }
 
-int interpolate(float a, float b, float fract) {
-  return int(a + fract * (b - a));
-}
-
-int rev_interpolate(float a, float b, float fract) {
-  return interpolate(a, b, 1 - fract);
-}
-
-int interpolate_wrap(float a, float b, float fract) {
+short interp_wrap(short a, short b, float fract) {
+  if (a == b) return a;
+  if (fract <= 0) return a;
+  if (fract >= 1) return b;
   
-  // Can I do this with bytes?
   float distCCW, distCW, answer;
 
   if (a >= b) {
@@ -751,16 +827,7 @@ int interpolate_wrap(float a, float b, float fract) {
       answer += 256;
     }
   }
-  return int(answer);
-}
-
-boolean is_black(color c) {
-  return brightness(c) == 0;  // Try both
-//  return (hue(c) == 0 && saturation(c) == 0 && brightness(c) == 0);
-}
-
-boolean is_same_color(color c1, color c2) {
-  return hue(c1) == hue(c2) && saturation(c1) == saturation(c2) && brightness(c1) == brightness(c2);
+  return (short)answer;
 }
 
 //

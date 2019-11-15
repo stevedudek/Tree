@@ -17,9 +17,9 @@ import shows
 #  ripping out OSC controller, queue
 #
 
-NUM_CHANNELS = 1  # Dual channels
+NUM_CHANNELS = 2  # Dual channels
 SHOW_TIME = 120  # Time of shows in seconds
-FADE_TIME = 10  # Fade In + Out times in seconds
+FADE_TIME = 20  # Fade In + Out times in seconds
 SPEED_MULT = 1  # Multiply every delay by this value. Higher = much slower shows
 
 

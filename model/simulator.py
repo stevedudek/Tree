@@ -3,6 +3,7 @@ Model to communicate with a Tree simulator over a TCP socket
 
 """
 import socket
+from color import hsv_to_rgb
 from HelperFunctions import byte_clamp
 
 
@@ -38,9 +39,10 @@ class SimulatorModel(object):
         """Send all of the buffered commands"""
         self.send_start()
         for (cell, color) in self.dirty.items():
-            h, s, b = byte_clamp(color[0], wrap=True), byte_clamp(color[1]), byte_clamp(color[2])
-
-            msg = "{}{},{},{},{}".format(self.channel, cell, h,s,b)
+            # h, s, v = byte_clamp(color[0], wrap=True), byte_clamp(color[1]), byte_clamp(color[2])
+            r, g, b = hsv_to_rgb((byte_clamp(color[0], wrap=True), byte_clamp(color[1]), byte_clamp(color[2])))
+            # msg = "{}{},{},{},{}".format(self.channel, cell, h,s,b)
+            msg = "{}{},{},{},{}".format(self.channel, cell, r, g, b)
 
             if self.debug:
                 print (msg)
