@@ -1,6 +1,6 @@
 from color import random_color, random_color_range, randint
 
-from HelperFunctions import Faders, Branch, one_in
+from HelperFunctions import Faders, Branch, one_in, MIN_DIM
 
 class InOutBranches(object):
     def __init__(self, treemodel):

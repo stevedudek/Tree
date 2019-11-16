@@ -1,5 +1,5 @@
 from random import randint
-from HelperFunctions import calc_packet, get_bpm_wave, get_reasonable_bpm, change_hue
+from HelperFunctions import calc_packet, get_bpm_wave, get_reasonable_bpm, change_hue, min_dim
 
 
 class Crosshair(object):
@@ -27,9 +27,9 @@ class Crosshair(object):
                 y_value = calc_packet(inverse_distance, 1.0, fract_x=0.8, smooth=True)
 
                 if x_value > y_value:
-                    pixel.set_color((self.x_hue, 255, x_value))
+                    pixel.set_color((self.x_hue, 255, min_dim(x_value)))
                 else:
-                    pixel.set_color((self.y_hue, 255, y_value))
+                    pixel.set_color((self.y_hue, 255, min_dim(y_value)))
 
             # Change the colors
             self.x_hue = change_hue(self.x_hue, rate=5)

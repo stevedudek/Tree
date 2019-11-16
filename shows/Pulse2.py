@@ -1,6 +1,6 @@
 from random import randint
-from HelperFunctions import calc_packet, get_bpm_circle, get_reasonable_bpm, get_reasonable_speed, get_true_or_false, \
-    change_hue
+from HelperFunctions import calc_packet, get_bpm_wave, get_reasonable_bpm, get_reasonable_speed, get_true_or_false, \
+    change_hue, min_dim
 
 
 class Pulse2(object):
@@ -16,18 +16,18 @@ class Pulse2(object):
         self.reverse = get_true_or_false()
 
     def next_frame(self):
+
         while True:
-            wave = get_bpm_circle(self.bpm) * self.wave_max
+            wave = get_bpm_wave(self.bpm) * self.wave_max
             if self.reverse:
                 wave = self.wave_max - wave
             for pixel in self.tree.all_pixels():
                 inverse_distance = self.wave_max - abs((pixel.fract + pixel.gen) - wave)
-                value = calc_packet(inverse_distance, self.wave_max, fract_x=0.8, smooth=True)
-                pixel.set_color((self.hue, 255, value))
+                value = calc_packet(inverse_distance, self.wave_max, fract_x=0.1, smooth=True)
+                pixel.set_color((self.hue, 255, min_dim(value)))
 
             self.hue = change_hue(self.hue)  # Change the colors
 
-            self.count += 1
             yield self.speed
 
 

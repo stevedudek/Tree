@@ -1,6 +1,6 @@
 from random import randint
 from math import pi
-from HelperFunctions import one_in, up_or_down, calc_packet, change_hue
+from HelperFunctions import one_in, up_or_down, calc_packet, change_hue, min_dim
 
 
 class Radar(object):
@@ -20,7 +20,7 @@ class Radar(object):
             for pixel in self.tree.all_pixels():
                 angle_diff = self.two_pi - abs(angle - pixel.theta)
                 value = calc_packet(angle_diff, self.two_pi, fract_x=0.5, smooth=True)
-                pixel.set_color((self.hue, 255, value))
+                pixel.set_color((self.hue, 255, min_dim(value)))
 
             self.hue = change_hue(self.hue)  # Change the colors
 

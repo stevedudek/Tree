@@ -1,5 +1,5 @@
 from random import randint
-from HelperFunctions import change_hue
+from HelperFunctions import change_hue, MIN_DIM
 
 class Light_One_Up(object):
 	def __init__(self, treemodel):
@@ -20,7 +20,7 @@ class Light_One_Up(object):
 				if dist_1 < 0.05 or dist_2 < 0.05:
 					pixel.set_color(color)
 				else:
-					pixel.set_black()
+					pixel.set_color((self.hue, 255, MIN_DIM))
 
 			self.hue = change_hue(self.hue)  # Change the colors
 

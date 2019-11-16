@@ -11,6 +11,7 @@ MAX_COLOR = 1536
 MAX_DIR = 8
 NUM_PIXELS = 144
 
+MIN_DIM = 64
 
 #
 # Common random functions
@@ -143,6 +144,11 @@ def change_hue(hue, rate=10):
     if one_in(rate):
         hue += (randrange(-1, 2) % 256)
     return hue
+
+
+def min_dim(value):
+    """Raise a 0-255 value above MIN_DIM"""
+    return int((value * (255 - MIN_DIM) / 255) + MIN_DIM)
 
 
 #

@@ -19,7 +19,7 @@ import shows
 
 NUM_CHANNELS = 2  # Dual channels
 SHOW_TIME = 120  # Time of shows in seconds
-FADE_TIME = 20  # Fade In + Out times in seconds
+FADE_TIME = 60  # Fade In + Out times in seconds
 SPEED_MULT = 1  # Multiply every delay by this value. Higher = much slower shows
 
 
